@@ -6,6 +6,7 @@ set -euo pipefail
 #   - Phase 1: simulator → ingest → verify → tests
 #   - Phase 2: aggregate trips & features → verify → tests
 #   - Phase 3: simulate labels → train GLM → verify → tests
+#   - Phase 4: train GBM (monotone) + calibration → verify → tests
 # ---------------------------
 
 PHASE="${PHASE:-1}"
@@ -19,6 +20,26 @@ OUT_TRIPS="${OUT_TRIPS:-data/trips}"
 OUT_FEATS="${OUT_FEATS:-data/trip_features}"
 OUT_DAILY="${OUT_DAILY:-data/driver_daily}"
 
+usage() {
+  cat <<USAGE
+Usage:
+  Phase 1: bin/make_demo.sh [--phase 1] [--clean|--no-clean] [--drivers N] [--trips N] [--hz HZ] [--out DIR]
+  Phase 2: bin/make_demo.sh --phase 2 [--pings DIR|GLOB] [--out-trips DIR] [--out-features DIR] [--out-daily DIR] [--clean]
+  Phase 3: bin/make_demo.sh --phase 3 [--clean]
+           (env: TARGET_RATE=0.03 L2_SEV=10 L2_FREQ=1.0)
+  Phase 4: bin/make_demo.sh --phase 4 [--clean]
+           (env: GBM_LR=0.08 GBM_MAX_DEPTH=3 GBM_MAX_LEAVES=31 GBM_TREES=300 GBM_L2=0.0 GBM_CALIB=isotonic SEED=42)
+
+Examples:
+  bin/make_demo.sh
+  CLEAN=0 bin/make_demo.sh --phase 1 --out data/pings_run1
+  bin/make_demo.sh --phase 2 --pings data/pings_run1
+  TARGET_RATE=0.06 L2_SEV=10 bin/make_demo.sh --phase 3
+  GBM_CALIB=sigmoid bin/make_demo.sh --phase 4
+USAGE
+}
+
+# ---- arg parsing
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --phase)    PHASE="${2:?}"; shift 2;;
@@ -32,35 +53,20 @@ while [[ $# -gt 0 ]]; do
     --out-trips)   OUT_TRIPS="${2:?}"; shift 2;;
     --out-features|--out-feats) OUT_FEATS="${2:?}"; shift 2;;
     --out-daily)   OUT_DAILY="${2:?}"; shift 2;;
-    -h|--help)
-      cat <<USAGE
-Usage:
-  Phase 1: bin/make_demo.sh [--phase 1] [--clean|--no-clean] [--drivers N] [--trips N] [--hz HZ] [--out DIR]
-  Phase 2: bin/make_demo.sh --phase 2 [--pings DIR|GLOB] [--out-trips DIR] [--out-features DIR] [--out-daily DIR] [--clean]
-  Phase 3: bin/make_demo.sh --phase 3 [--clean]
-
-Examples:
-  bin/make_demo.sh
-  CLEAN=0 bin/make_demo.sh --phase 1 --out data/pings_run1
-  bin/make_demo.sh --phase 2 --pings data/pings_run1
-  bin/make_demo.sh --phase 3
-USAGE
-      exit 0;;
-    *) echo "Unknown arg: $1" >&2; exit 2;;
+    -h|--help) usage; exit 0;;
+    *) echo "Unknown arg: $1" >&2; usage; exit 2;;
   esac
 done
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-log() { printf "\n\033[1;34m[%s]\033[0m %s\n" "$(date +%H:%M:%S)" "$*"; }
-die() { echo "ERROR: $*" >&2; exit 1; }
+log()  { printf "\n\033[1;34m[%s]\033[0m %s\n" "$(date +%H:%M:%S)" "$*"; }
+die()  { echo "ERROR: $*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"; }
-
 need python
 
 latest_pings_dir() {
-  # find the most recent pings* directory
   ls -1dt data/pings* 2>/dev/null | head -n 1 || true
 }
 
@@ -99,7 +105,6 @@ phase1() {
 }
 
 phase2() {
-  # determine input pings
   local INP="${PINGS_IN:-}"
   if [[ -z "${INP}" ]]; then
     INP="$(latest_pings_dir)"
@@ -136,14 +141,12 @@ phase2() {
 }
 
 phase3() {
-  # choose pings/features
   local PINGS
   PINGS="$(ls -1dt data/pings* 2>/dev/null | head -n 1 || true)"
   [[ -z "${PINGS}" ]] && die "No pings directory found. Run phase 1 first."
   local FEATURES="data/trip_features"
   [[ ! -d "${FEATURES}" ]] && die "No trip_features found. Run phase 2 first."
 
-  # clean old models/labels
   if [[ "${CLEAN}" -eq 1 ]]; then
     log "Cleaning models/ and data/labels_trip"
     rm -rf models data/labels_trip
@@ -174,9 +177,51 @@ phase3() {
   echo "Artifacts in ./models and ./data/labels_trip"
 }
 
+phase4() {
+  if [[ ! -d data/trip_features ]]; then die "Phase 2 outputs not found (data/trip_features)"; fi
+  if [[ ! -d data/labels_trip ]]; then die "Phase 3 labels not found (data/labels_trip)"; fi
+
+  if [[ "${CLEAN}" -eq 1 ]]; then
+    log "Cleaning GBM artifacts"
+    rm -f models/gbm_*.pkl models/gbm_meta.json
+  fi
+  mkdir -p models
+
+  log "Phase 4: train GBM freq with monotone constraints + calibration"
+  python -m src.ml.train_gbm \
+    --features data/trip_features \
+    --labels data/labels_trip \
+    --models models \
+    --metrics_out models/metrics_gbm.json \
+    --learning_rate "${GBM_LR:-0.08}" \
+    --max_depth "${GBM_MAX_DEPTH:-3}" \
+    --max_leaf_nodes "${GBM_MAX_LEAVES:-31}" \
+    --n_estimators "${GBM_TREES:-300}" \
+    --l2 "${GBM_L2:-0.0}" \
+    --early_stopping 1 \
+    --calib_method "${GBM_CALIB:-isotonic}" \
+    --ablations 1 \
+    --seed "${SEED:-42}"
+
+  if [[ -x bin/verify_phase4.py ]]; then
+    log "Verify Phase 4 GBM metrics + monotonicity"
+    python bin/verify_phase4.py --models models --features data/trip_features --labels data/labels_trip
+  fi
+
+  if command -v pytest >/dev/null 2>&1; then
+    log "Run unit tests"
+    pytest -q
+  fi
+
+  log "Phase 4 completed successfully"
+  echo "Artifacts: models/gbm_freq*.pkl, models/gbm_meta.json"
+}
+
+# ---- final dispatcher (single case block!)
 case "${PHASE}" in
   1) log "Running Phase 1"; phase1;;
   2) log "Running Phase 2"; phase2;;
   3) log "Running Phase 3"; phase3;;
-  *) die "Unsupported phase: ${PHASE} (use 1, 2 or 3)";;
+  4) log "Running Phase 4"; phase4;;
+  *) die "Unsupported phase: ${PHASE} (use 1, 2, 3 or 4)";;
 esac
