@@ -5,6 +5,7 @@ set -euo pipefail
 # make_demo.sh — project runner
 #   - Phase 1: simulator → ingest → verify → tests
 #   - Phase 2: aggregate trips & features → verify → tests
+#   - Phase 3: simulate labels → train GLM → verify → tests
 # ---------------------------
 
 PHASE="${PHASE:-1}"
@@ -36,11 +37,13 @@ while [[ $# -gt 0 ]]; do
 Usage:
   Phase 1: bin/make_demo.sh [--phase 1] [--clean|--no-clean] [--drivers N] [--trips N] [--hz HZ] [--out DIR]
   Phase 2: bin/make_demo.sh --phase 2 [--pings DIR|GLOB] [--out-trips DIR] [--out-features DIR] [--out-daily DIR] [--clean]
+  Phase 3: bin/make_demo.sh --phase 3 [--clean]
 
 Examples:
   bin/make_demo.sh
   CLEAN=0 bin/make_demo.sh --phase 1 --out data/pings_run1
   bin/make_demo.sh --phase 2 --pings data/pings_run1
+  bin/make_demo.sh --phase 3
 USAGE
       exit 0;;
     *) echo "Unknown arg: $1" >&2; exit 2;;
@@ -75,6 +78,7 @@ phase1() {
 
   log "Simulator: drivers=${DRIVERS} trips=${TRIPS} hz=${HZ}"
   python -m src.simulator.generate_trips --drivers "${DRIVERS}" --trips "${TRIPS}" --hz "${HZ}" --golden
+
   log "Ingest → Parquet (OUT=${OUT})"
   python -m src.ingest.ingest --input "data/tmp/*.ndjson" --out "${OUT}"
 
@@ -131,8 +135,48 @@ phase2() {
   echo "  - DriverDay:  ${OUT_DAILY}/driver_id=*/dt=*/part-*.parquet"
 }
 
+phase3() {
+  # choose pings/features
+  local PINGS
+  PINGS="$(ls -1dt data/pings* 2>/dev/null | head -n 1 || true)"
+  [[ -z "${PINGS}" ]] && die "No pings directory found. Run phase 1 first."
+  local FEATURES="data/trip_features"
+  [[ ! -d "${FEATURES}" ]] && die "No trip_features found. Run phase 2 first."
+
+  # clean old models/labels
+  if [[ "${CLEAN}" -eq 1 ]]; then
+    log "Cleaning models/ and data/labels_trip"
+    rm -rf models data/labels_trip
+  fi
+  mkdir -p models
+
+  TARGET_RATE="${TARGET_RATE:-0.03}"
+  log "Phase 3: simulate labels (target_rate=${TARGET_RATE})"
+  python -m src.ml.label_simulator --features "${FEATURES}" --out data/labels_trip --target-rate "${TARGET_RATE}"
+
+  log "Phase 3: train GLM (freq + severity)"
+  python -m src.ml.train_glm \
+    --features "${FEATURES}" --labels data/labels_trip \
+    --models models --metrics_out models/metrics_glm.json \
+    --l2-sev "${L2_SEV:-10}" --l2-freq "${L2_FREQ:-1.0}"
+
+  if [[ -x bin/verify_phase3.py ]]; then
+    log "Verify Phase 3 metrics + artifacts"
+    python bin/verify_phase3.py --models models --metrics models/metrics_glm.json
+  fi
+
+  if command -v pytest >/dev/null 2>&1; then
+    log "Run unit tests"
+    pytest -q
+  fi
+
+  log "Phase 3 completed successfully"
+  echo "Artifacts in ./models and ./data/labels_trip"
+}
+
 case "${PHASE}" in
   1) log "Running Phase 1"; phase1;;
   2) log "Running Phase 2"; phase2;;
-  *) die "Unsupported phase: ${PHASE} (use 1 or 2)";;
+  3) log "Running Phase 3"; phase3;;
+  *) die "Unsupported phase: ${PHASE} (use 1, 2 or 3)";;
 esac
