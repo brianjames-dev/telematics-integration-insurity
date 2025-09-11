@@ -1,0 +1,130 @@
+A. End-to-end local pipeline (train everything)
+# Phase 1: simulate pings, ingest, verify
+bin/make_demo.sh --phase 1 --trips 250
+
+# Phase 2: aggregate trips & features, verify
+bin/make_demo.sh --phase 2
+
+# Phase 3: simulate labels; train GLM freq+sev; verify
+TARGET_RATE=0.03 L2_SEV=10 bin/make_demo.sh --phase 3
+
+# Phase 4: train GBM freq (monotone + calibration); verify
+GBM_CALIB=isotonic SEED=42 bin/make_demo.sh --phase 4
+
+# Phase 5: API smoke tests (in-process)
+bin/make_demo.sh --phase 5
+When to run: Any time you need to regenerate data/models or confirm everything still passes.
+
+
+
+B. Docker lifecycle (build, serve, verify, shell, down)
+# Build the image (tags as ubi-api:latest)
+bin/docker.sh build
+
+# Run the API on localhost:8000 (Ctrl+C to stop, or use 'down' below)
+bin/docker.sh serve
+
+# Quick smoke tests *inside* the container’s environment
+bin/docker.sh verify
+
+# Get an interactive shell in the container (for debugging)
+bin/docker.sh shell
+
+# Stop & remove the running container
+bin/docker.sh down
+When to run: To package and serve your API in a controlled environment, or to hand an image to someone else.
+
+
+
+C. Hit the API from your host (with Docker running)
+# health
+curl -s http://localhost:8000/health
+
+# score a driver (change ID if needed)
+curl -s "http://localhost:8000/score/driver/D_001?window_days=365" | jq
+
+# price a quote
+curl -s -X POST http://localhost:8000/price/quote \
+  -H "Content-Type: application/json" \
+  -d '{"driver_id":"D_001","window_days":365,
+       "annual_km":12000,"lae_ratio":0.10,"expense_ratio":0.25,
+       "target_margin":0.05,"min_premium":300.0,
+       "prior_premium":500.0,"max_change":0.15}' | jq
+When to run: Sanity-check the containerized API without leaving your terminal.
+
+
+
+D. Batch scoring (two modes)
+D1) Call the API (container must be serving)
+python bin/score_batch.py \
+  --input data/trip_features \
+  --out models/batch_scores.parquet \
+  --api http://localhost:8000 \
+  --window-days 365
+Use when: you want to test the same HTTP path your consumers will use.
+
+D2) Run in-process (faster; no HTTP)
+python bin/score_batch.py \
+  --input data/trip_features \
+  --out models/batch_scores.parquet \
+  --inproc \
+  --window-days 365
+Use when: you’re on the same box and want maximum throughput.
+
+
+
+E. Quick inspection helpers
+# GBM meta / monotone vector
+python - <<'PY'
+import json, pathlib
+m=json.loads(pathlib.Path("models/gbm_meta.json").read_text())
+print(m["features"]); print(m["monotonic_cst"])
+PY
+
+# Score calibration snapshot (AUC/PR-AUC/lift from training)
+cat models/metrics_gbm.json | jq
+
+# Premium sanity (pricing knobs)
+python - <<'PY'
+from src.serve.pricing import price_from_risk
+print(price_from_risk(15.0, 12000, 0.10, 0.25, 0.05,
+                      min_premium=300.0, prior_premium=500.0, max_change=0.15))
+PY
+
+
+
+How the pieces talk to each other (data flow)
+Features (Phase 2) → parquet under data/trip_features.
+Models (Phases 3–4) → JSON/PKL under models/.
+API (Phase 5) loads the models once at startup:
+POST /score/trip → score one row (freq+sev) → EC_100.
+GET /score/driver → aggregate trips then score.
+POST /price/quote → computes premium = clamp(raw; caps, floor).
+Batch scoring uses either:
+The HTTP API (exact same behavior as clients will see), or
+The in-process scorer (same math, faster, good for big offline runs).
+
+
+Troubleshooting & tips
+Port already in use: change -p 8000:8000 in your serve script or stop whatever is on 8000.
+Container won’t stop: bin/docker.sh down (or docker stop ubi-api && docker rm -f ubi-api).
+“ModuleNotFoundError: src”: run from repo root (cd <repo>), or add root to PYTHONPATH, or call via python -m ….
+Premiums feel unrealistic: this is expected-cost driven. Use pricing knobs to shape outcomes:
+min_premium (floor),
+prior_premium + max_change caps (stability),
+lae_ratio, expense_ratio, target_margin (load/margin).
+Reproducibility: training uses fixed seeds; your Docker verify shows same metrics hashes with fixed SEED.
+
+
+TL;DR cheat-card
+Train locally: bin/make_demo.sh --phase {1..4}
+Smoke API locally: bin/make_demo.sh --phase 5
+Docker:
+Build: bin/docker.sh build
+Serve: bin/docker.sh serve → open http://localhost:8000/docs
+Verify: bin/docker.sh verify
+Shell: bin/docker.sh shell
+Down: bin/docker.sh down
+Batch score:
+API: python bin/score_batch.py --api http://localhost:8000 ...
+In-proc: python bin/score_batch.py --inproc ...

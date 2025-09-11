@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.parquet
+*.ndjson
+.data/
+data/
+models/
+.venv/
+.git/

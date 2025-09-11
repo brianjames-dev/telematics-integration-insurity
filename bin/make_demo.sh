@@ -7,6 +7,7 @@ set -euo pipefail
 #   - Phase 2: aggregate trips & features → verify → tests
 #   - Phase 3: simulate labels → train GLM → verify → tests
 #   - Phase 4: train GBM (monotone) + calibration → verify → tests
+#   - Phase 5: API smoke (in-process) → verify
 # ---------------------------
 
 PHASE="${PHASE:-1}"
@@ -29,13 +30,16 @@ Usage:
            (env: TARGET_RATE=0.03 L2_SEV=10 L2_FREQ=1.0)
   Phase 4: bin/make_demo.sh --phase 4 [--clean]
            (env: GBM_LR=0.08 GBM_MAX_DEPTH=3 GBM_MAX_LEAVES=31 GBM_TREES=300 GBM_L2=0.0 GBM_CALIB=isotonic SEED=42)
+  Phase 5: bin/make_demo.sh --phase 5 [--clean]
+           (expects models from phases 3+4; runs bin/verify_phase5.py)
 
 Examples:
   bin/make_demo.sh
   CLEAN=0 bin/make_demo.sh --phase 1 --out data/pings_run1
   bin/make_demo.sh --phase 2 --pings data/pings_run1
   TARGET_RATE=0.06 L2_SEV=10 bin/make_demo.sh --phase 3
-  GBM_CALIB=sigmoid bin/make_demo.sh --phase 4
+  GBM_CALIB=sigmoid SEED=123 bin/make_demo.sh --phase 4
+  bin/make_demo.sh --phase 5
 USAGE
 }
 
@@ -217,11 +221,34 @@ phase4() {
   echo "Artifacts: models/gbm_freq*.pkl, models/gbm_meta.json"
 }
 
-# ---- final dispatcher (single case block!)
+phase5() {
+  # requires Phase 2 features + models from Phase 3 & 4
+  if [[ ! -d data/trip_features ]]; then die "Phase 2 outputs not found (data/trip_features)"; fi
+  if [[ ! -f models/glm_sev.json || ! -f models/gbm_meta.json || ! -f models/gbm_freq.pkl ]]; then
+    die "Models not found. Run Phase 3 (GLM) and Phase 4 (GBM) first."
+  fi
+  if [[ ! -x bin/verify_phase5.py ]]; then
+    die "Missing bin/verify_phase5.py (API smoke test)."
+  fi
+
+  # optional: export model paths for api.py to discover
+  export UBI_MODELS_DIR="models"
+  export UBI_MODEL_GLM_SEV="models/glm_sev.json"
+  export UBI_MODEL_GBM_FREQ="models/gbm_freq.pkl"
+  export UBI_MODEL_GBM_CAL="models/gbm_cal.pkl"  # may not exist; api.py should handle gracefully
+
+  log "Phase 5: API smoke (in-process)"
+  python bin/verify_phase5.py
+
+  log "Phase 5 completed successfully"
+}
+
+# ---- final dispatcher
 case "${PHASE}" in
   1) log "Running Phase 1"; phase1;;
   2) log "Running Phase 2"; phase2;;
   3) log "Running Phase 3"; phase3;;
   4) log "Running Phase 4"; phase4;;
-  *) die "Unsupported phase: ${PHASE} (use 1, 2, 3 or 4)";;
+  5) log "Running Phase 5"; phase5;;
+  *) die "Unsupported phase: ${PHASE} (use 1, 2, 3, 4, or 5)";;
 esac
