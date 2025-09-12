@@ -11,25 +11,6 @@ This proof-of-concept (POC) demonstrates a usage-based insurance (UBI) workflow 
 
 ---
 
-## Repo Structure
-
-.
-├── src
-│ ├── simulator/ # synthetic pings & trips generator
-│ ├── ingest/ # asyncio-based ingestion (Kafka optional; not required)
-│ ├── processing/ # trip aggregation, feature engineering
-│ ├── ml/ # train_glm.py (+ optional train_gbm.py), calibrate.py
-│ ├── serve/ # FastAPI app: api.py, pricing.py, schemas.py
-│ └── ui/ # Streamlit dashboard
-├── models/ # trained GLM weights / calibration artifacts
-├── data/ # generated: pings, trips, features, per-driver summaries
-├── docs/ # design/documents (design_doc.md, model_card.md, etc.)
-├── bin/ # helper scripts (optional)
-├── docker-compose.yml # optional (not required for local demo)
-└── README.md
-
----
-
 ## Quickstart
 
 Run the full demo locally with Docker in **two commands** (from the project root):
