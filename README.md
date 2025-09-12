@@ -2,17 +2,12 @@
 
 ## Overview
 
-This repository contains a proof-of-concept (POC) system for **usage-based auto insurance (UBI)** using telematics data.
+This proof-of-concept (POC) demonstrates a usage-based insurance (UBI) workflow on synthetic telematics data:
 
-The system demonstrates:
-
-- Real-time ingestion of simulated telematics pings.
-- Trip/session aggregation into insurer-friendly features.
-- Risk scoring via GLM (baseline) and GBM (advanced).
-- Pricing engine with guardrails and smoothing.
-- APIs for scoring and pricing.
-- Streamlit dashboard for drivers and insurers.
-- Documentation on data, models, guardrails, and compliance.
+- Real-time(ish) ingestion of simulated pings ➝ trip aggregation ➝ feature generation
+- Risk scoring using a baseline GLM (optional GBM scripts are included but not required)
+- Pricing engine with guardrails & smoothing
+- FastAPI service for scoring/pricing + Streamlit dashboard to explore results
 
 ---
 
@@ -20,54 +15,40 @@ The system demonstrates:
 
 .
 ├── src
-│ ├── simulator/ # generate synthetic pings & trips
-│ ├── ingest/ # ingestion service (asyncio; kafka optional)
-│ ├── processing/ # trip aggregator, feature definitions
-│ ├── ml/ # train_glm.py, train_gbm.py, calibrate.py
-│ ├── serve/ # FastAPI: api.py, pricing.py, schemas.py
+│ ├── simulator/ # synthetic pings & trips generator
+│ ├── ingest/ # asyncio-based ingestion (Kafka optional; not required)
+│ ├── processing/ # trip aggregation, feature engineering
+│ ├── ml/ # train_glm.py (+ optional train_gbm.py), calibrate.py
+│ ├── serve/ # FastAPI app: api.py, pricing.py, schemas.py
 │ └── ui/ # Streamlit dashboard
-├── models/ # saved model weights, calibration files
-├── data/ # raw pings, trips, trip_features, driver_daily
-├── docs/ # design_doc.md, data_dictionary.md, model_card.md, pricing_guardrails.md
-├── bin/ # helper scripts (make_demo.sh, run_api.sh, run_ui.sh)
-├── docker-compose.yml
-├── docker-compose.kafka.yml # optional profile
+├── models/ # trained GLM weights / calibration artifacts
+├── data/ # generated: pings, trips, features, per-driver summaries
+├── docs/ # design/documents (design_doc.md, model_card.md, etc.)
+├── bin/ # helper scripts (optional)
+├── docker-compose.yml # optional (not required for local demo)
 └── README.md
 
 ---
 
 ## Quickstart
 
-### Prerequisites
+Run the full demo locally with Docker in **two commands**.
 
-- Python 3.11+
-- Docker & docker-compose (optional for running services)
-- Recommended: virtual environment (`venv` or `conda`)
+## Prerequisites
 
-### Install dependencies
+- **Docker Desktop** (includes Docker Compose v2)
+  - macOS: https://docs.docker.com/desktop/setup/install/mac-install/
+  - Windows (with **WSL2** backend): https://docs.docker.com/desktop/features/wsl/
+  - Product page (all platforms): https://www.docker.com/products/docker-desktop/
+
+> Windows users: run commands in **WSL2 (Ubuntu)** or **Git Bash** so `bash` scripts work.
+
+## Quick Start (run commands from the project root)
 
 ```bash
-pip install -r requirements.txt
+docker compose build
+bash bin/run_demo.sh
 ```
-
-# 1. Generate synthetic trips
-
-python src/simulator/generate_trips.py
-
-# 2. Train models (GLM + GBM)
-
-python src/ml/train_glm.py
-python src/ml/train_gbm.py
-
-# 3. Start API
-
-python src/serve/api.py
-
-# 4. Launch dashboard
-
-streamlit run src/ui/streamlit_app.py
-
-bash bin/make_demo.sh
 
 ---
 
@@ -81,20 +62,18 @@ See `src/serve/schemas.py` for request/response formats.
 
 ---
 
-## Dashboard (Streamlit)
+## Notes on Components Used
 
-### Driver View
+- Ingestion: runs with asyncio + local simulator by default.
+- Modeling: the GLM is sufficient to run end-to-end; GBM artifacts are optional and not needed for the quickstart.
+- Docker: You can containerize with docker-compose.yml, but you can also run scripts to gain the same result.
 
-- Current premium multiplier & trend
-- Last 7 trips with key metrics
-- Top 3 contributing factors + improvement tips
+## Troubleshooting
 
-### Insurer View
-
-- Calibration curve
-- Decile lift chart
-- Multiplier distribution
-- Guardrail hit rates
+- Python version: ensure 3.11+; mismatched versions can cause dependency errors.
+- Ports: if 8000 or 8501 are in use, set alternate ports.
+- Permissions on Windows: run PowerShell as admin if activation scripts are blocked (Set-ExecutionPolicy -Scope Process Bypass).
+- Fresh data: if you change generators or features, re-run the simulator and re-train the GLM to refresh ./data and ./models.
 
 ---
 
@@ -106,37 +85,3 @@ See `src/serve/schemas.py` for request/response formats.
 - [Pricing Guardrails](./docs/pricing_guardrails.md) – premium smoothing & caps
 
 ---
-
-## Tech Stack
-
-- **Language**: Python 3.11
-- **Data**: Parquet + DuckDB (local query)
-- **Streaming**: asyncio (lean) or Kafka (optional profile)
-- **ML**: statsmodels (GLM), LightGBM/XGBoost (GBM), scikit-learn (calibration)
-- **Serving**: FastAPI
-- **UI**: Streamlit
-- **Orchestration**: docker-compose
-
----
-
-## Limitations
-
-- Labels simulated; not calibrated to real claims
-- No production-grade fraud/tamper detection
-- No protected attributes, but location/time may proxy risk factors
-
----
-
-## Roadmap
-
-1. Integrate real claims data for training/validation
-2. Add fraud detection via anomaly scoring on raw pings
-3. Expand context joins with live weather/traffic APIs
-4. Deploy as containerized microservices with Kafka pipelines
-5. Perform fairness audits across driver subgroups
-
----
-
-## License
-
-[MIT License](LICENSE) (placeholder – update as needed)

@@ -99,7 +99,7 @@ phase1() {
 
   if command -v pytest >/dev/null 2>&1; then
     log "Run unit tests"
-    pytest -q
+    pytest -q -k 'not phase5'
   fi
 
   log "Phase 1 completed successfully"
@@ -134,7 +134,7 @@ phase2() {
 
   if command -v pytest >/dev/null 2>&1; then
     log "Run unit tests"
-    pytest -q
+    pytest -q -k 'not phase5'
   fi
 
   log "Phase 2 completed successfully"
@@ -174,7 +174,7 @@ phase3() {
 
   if command -v pytest >/dev/null 2>&1; then
     log "Run unit tests"
-    pytest -q
+    pytest -q -k 'not phase5'
   fi
 
   log "Phase 3 completed successfully"
@@ -214,7 +214,7 @@ phase4() {
 
   if command -v pytest >/dev/null 2>&1; then
     log "Run unit tests"
-    pytest -q
+    pytest -q -k 'not phase5'
   fi
 
   log "Phase 4 completed successfully"
@@ -239,7 +239,10 @@ phase5() {
 
   log "Phase 5: API smoke (in-process)"
   python bin/verify_phase5.py
-
+  if command -v pytest >/dev/null 2>&1; then
+    log "Run unit tests (phase 5 only)"
+    pytest -q -k 'phase5'
+  fi
   log "Phase 5 completed successfully"
 }
 

@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    container_name: ubi-api
+    working_dir: /app
+    # This is your Dockerfile's CMD, mirrored here so compose up works
+    command: uvicorn src.serve.api:app --host 0.0.0.0 --port 8000 --workers 1
+    ports:
+      - "${PORT:-8080}:8000"   # host:container (change PORT in .env if you want)
+    volumes:
+      - ./:/app                # bind mount so data/models persist to your repo
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"

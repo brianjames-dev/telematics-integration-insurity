@@ -1,14 +1,26 @@
 # src/serve/api.py
 from __future__ import annotations
 from typing import Optional, Dict, Any, Annotated
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .scoring import get_scorer
 from .pricing import price_from_risk
+from .dashboard import router as dashboard_router  # <-- dashboard UI
 
 app = FastAPI(title="Telematics UBI API", version="0.1")
+
+# serve /static (templates/static)
+_BASE_DIR = Path(__file__).resolve().parent
+_STATIC_DIR = _BASE_DIR / "static"
+_STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+# include dashboard UI routes
+app.include_router(dashboard_router)
 
 # ---------- Schemas ----------
 FloatGE0 = Annotated[float, Field(ge=0)]
@@ -54,11 +66,9 @@ class QuoteIn(BaseModel):
 
 class QuoteOut(BaseModel):
     driver: DriverScoreOut
-    # Important: pricing is a nested structure (premium, loads, bounds, inputs, ...)
-    # Make this a generic dict unless you define full submodels.
-    pricing: Dict[str, Any]
+    pricing: Dict[str, Any]  # nested structure
 
-# ---------- Endpoints ----------
+# ---------- JSON API ----------
 @app.get("/health")
 def health():
     return {"ok": True}

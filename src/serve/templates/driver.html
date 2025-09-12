@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- selector toolbar -->
+<form class="toolbar" method="get" action="/dashboard" id="switcher">
+  <label>
+    Source
+    <select name="src" onchange="document.getElementById('switcher').submit()">
+      {% for s in sources %}
+        <option value="{{ s }}" {% if s == src %}selected{% endif %}>{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>
+    Driver
+    <select name="driver" onchange="document.getElementById('switcher').submit()">
+      {% for d in drivers %}
+        <option value="{{ d }}" {% if d == driver %}selected{% endif %}>{{ d }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+
+<section class="cards">
+  <div class="card"><div class="k">Driver</div><div class="v">{{ driver }}</div></div>
+  <div class="card"><div class="k">Overall Risk</div><div class="v score">{{ "%.1f"|format(driver_score) }}/100</div></div>
+  <div class="card"><div class="k">Trips</div><div class="v">{{ agg.n_trips }}</div></div>
+  <div class="card"><div class="k">Exposure (km)</div><div class="v">{{ "%.0f"|format(agg.exposure_km) }}</div></div>
+  <div class="card"><div class="k">EC/100km</div><div class="v">${{ "%.2f"|format(agg.expected_cost_per100km) }}</div></div>
+  <div class="card">
+    <div class="k">Premium</div>
+    <div class="v">${{ "%.2f"|format(pricing.premium) }}</div>
+    <div class="sub">({{ pricing.cap_reason or "raw" }})</div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Trip Risk Trend</h2>
+  <canvas id="riskChart"></canvas>
+</section>
+
+<section class="panel">
+  <h2>Recent Trips</h2>
+  <div class="table-wrap">
+    <table class="tbl">
+      <thead>
+      <tr>
+        <th>Trip</th>
+        <th>Score</th>
+        <th>EC/100km</th>
+        <th>Exposure</th>
+        <th>Night</th>
+        <th>Speed p95&gt;limit</th>
+        <th>Brakes/100km</th>
+        <th>Phone</th>
+        <th>Rain</th>
+        <th>Mean kph</th>
+        <th>Crash grid</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for t in trips %}
+      <tr>
+        <td>{{ t.trip_id }}</td>
+        <td>
+          <span class="chip {{ 'bad' if t.risk_score_0_100>=70 else 'warn' if t.risk_score_0_100>=30 else 'good' }}">
+            {{ "%.0f"|format(t.risk_score_0_100) }}
+          </span>
+        </td>
+        <td>${{ "%.2f"|format(t.ec100_trip) }}</td>
+        <td>{{ "%.1f"|format(t.exposure_km) }}</td>
+        <td>{{ "%.2f"|format(t.night_ratio) }}</td>
+        <td>{{ "%.1f"|format(t.p95_over_limit_kph) }}</td>
+        <td>{{ "%.1f"|format(t.harsh_brakes_per100km) }}</td>
+        <td>{{ "%.2f"|format(t.phone_motion_ratio) }}</td>
+        <td>{{ t.rain_flag }}</td>
+        <td>{{ "%.1f"|format(t.mean_speed_kph) }}</td>
+        <td>{{ "%.2f"|format(t.crash_grid_index) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- data-only scripts so the JS linter stays happy -->
+<script id="labels-json" type="application/json">{{ chart_labels | tojson }}</script>
+<script id="scores-json" type="application/json">{{ chart_scores | tojson }}</script>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const labels = JSON.parse(document.getElementById('labels-json').textContent || '[]');
+  const data   = JSON.parse(document.getElementById('scores-json').textContent || '[]');
+
+  const ctx = document.getElementById('riskChart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets: [{ label: 'Trip risk (0–100)', data, tension: 0.25, pointRadius: 2 }] },
+    options: {
+      responsive: true,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: { y: { min: 0, max: 100, ticks: { stepSize: 10 } } }
+    }
+  });
+</script>
+{% endblock %}
