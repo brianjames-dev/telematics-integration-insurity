@@ -3,8 +3,7 @@
 ## Model Overview
 
 - **Name**: Telematics Risk Scoring v1
-- **Date**: 2025-09-09
-- **Developers**: [Your Name / Team]
+- **Developers**: Brian James
 - **Type**: Hybrid approach – GLM baseline, GBM advanced
 - **Objective**: Predict expected claim frequency/severity from trip-level aggregates for usage-based insurance (UBI) pricing.
 

@@ -22,7 +22,7 @@ echo ">> Running demo pipeline inside container: ${SERVICE}"
 docker compose run --rm "$SERVICE" bash -lc '
   set -e
   chmod +x bin/make_demo.sh
-  PHASE=1 CLEAN=1 DRIVERS=50 TRIPS=12 HZ=1.0 bin/make_demo.sh --phase 1
+  PHASE=1 CLEAN=1 DRIVERS=10 TRIPS=50 HZ=1.0 bin/make_demo.sh --phase 1
   PHASE=2 CLEAN=1 bin/make_demo.sh --phase 2
   TARGET_RATE=0.03 L2_SEV=10 L2_FREQ=1.0 PHASE=3 CLEAN=1 bin/make_demo.sh --phase 3
   GBM_LR=0.08 GBM_MAX_DEPTH=3 GBM_MAX_LEAVES=31 GBM_TREES=300 GBM_CALIB=isotonic SEED=42 PHASE=4 CLEAN=1 bin/make_demo.sh --phase 4

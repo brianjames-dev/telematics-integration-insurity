@@ -32,7 +32,12 @@ This proof-of-concept (POC) demonstrates a usage-based insurance (UBI) workflow 
 
 ## Quickstart
 
-Run the full demo locally with Docker in **two commands**.
+Run the full demo locally with Docker in **two commands** (from the project root):
+
+    docker compose build
+    bash bin/run_demo.sh
+
+---
 
 ## Prerequisites
 
@@ -41,14 +46,54 @@ Run the full demo locally with Docker in **two commands**.
   - Windows (with **WSL2** backend): https://docs.docker.com/desktop/features/wsl/
   - Product page (all platforms): https://www.docker.com/products/docker-desktop/
 
-> Windows users: run commands in **WSL2 (Ubuntu)** or **Git Bash** so `bash` scripts work.
+> **Windows:** run commands in **WSL2 (Ubuntu)** or **Git Bash** so `bash` scripts work.
 
-## Quick Start (run commands from the project root)
+---
 
-```bash
-docker compose build
-bash bin/run_demo.sh
-```
+## Tuning the demo (optional)
+
+You can override environment variables when running `bin/run_demo.sh` to control data size and model behavior:
+
+    DRIVERS=10 TRIPS=50 HZ=1.0 TARGET_RATE=0.05 GBM_TREES=300 bash bin/run_demo.sh
+
+**Phase 1 (simulation → pings → parquet)**
+
+- `DRIVERS` — number of distinct drivers (e.g., `10`)
+- `TRIPS` — trips **per driver** (e.g., `50`) → total trips ≈ `DRIVERS × TRIPS`
+- `HZ` — ping frequency (samples/sec). Higher = more rows per trip (e.g., `1.0`)
+
+**Phase 3 (labels + GLM)**
+
+- `TARGET_RATE` — average claim rate simulated. Higher ⇒ more risky trips overall (e.g., `0.03`)
+- `L2_SEV`, `L2_FREQ` — GLM regularization. Higher ⇒ smoother/shrunk coefficients (e.g., `10`, `1.0`)
+
+**Phase 4 (GBM + calibration)**
+
+- `GBM_LR`, `GBM_TREES`, `GBM_MAX_DEPTH`, `GBM_MAX_LEAVES` — model capacity/smoothness
+- `GBM_CALIB` — `isotonic` (flexible) or `sigmoid` (Platt scaling)
+- `SEED` — reproducible training (e.g., `42`)
+
+**How these settings shape the demo**
+
+- **Volume / richness:** `DRIVERS × TRIPS` sets table sizes; `HZ` scales ping file size.
+- **Risk mix:** `TARGET_RATE` shifts the distribution of risk scores (higher rate ⇒ more high-risk trips/drivers).
+- **Smoothness vs detail:** higher GLM L2 = smoother; larger GBM depth/leaves/trees = more expressive (but risk overfit). Calibration affects how probabilities map to observed rates.
+
+---
+
+## Reset to a clean state (optional)
+
+Simulate a fresh machine by removing containers/volumes and generated artifacts:
+
+    docker compose down -v --remove-orphans || true
+    docker image prune -f
+    docker network prune -f
+    rm -rf data/ models/        # optional: wipe generated outputs
+    docker compose build
+    bash bin/run_demo.sh
+
+> If port `8080` is busy:  
+> `PORT=8090 bash bin/run_demo.sh` → open `http://localhost:8090/dashboard`.
 
 ---
 

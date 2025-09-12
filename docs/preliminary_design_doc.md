@@ -31,8 +31,7 @@ This document defines the architecture, data models, modeling choices, pricing e
 
 **Profiles**
 
-- Default: Lean mode (asyncio + Parquet + DuckDB).
-- Optional: Kafka profile in `docker-compose.kafka.yml`.
+- Default: Lean mode (asyncio + Parquet).
 
 ---
 
@@ -57,7 +56,7 @@ See [data_dictionary.md](./data_dictionary.md) for detailed schemas.
 
 ### Baseline GLM
 
-- Frequency: Poisson GLM with km exposure.
+- Frequency: GLM with km exposure.
 - Severity: Gamma GLM on positive claims.
 - Pure premium = freq × severity.
 
@@ -88,7 +87,7 @@ See [data_dictionary.md](./data_dictionary.md) for detailed schemas.
 
 ---
 
-## 9. Dashboard (Streamlit)
+## 9. Dashboard
 
 **Driver view**
 
