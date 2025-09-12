@@ -52,9 +52,7 @@ Run the full demo locally with Docker in **two commands** (from the project root
 
 ## Tuning the demo (optional)
 
-You can override environment variables when running `bin/run_demo.sh` to control data size and model behavior:
-
-    DRIVERS=10 TRIPS=50 HZ=1.0 TARGET_RATE=0.05 GBM_TREES=300 bash bin/run_demo.sh
+You can override environment variables before running `bin/run_demo.sh` to control data size and model behavior by editing the following variables inside of `bin/run_demo.sh` at lines 25 - 29:
 
 **Phase 1 (simulation → pings → parquet)**
 
